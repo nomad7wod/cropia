@@ -1,0 +1,38 @@
+{
+  "version": "3.0-final",
+  "date": "2026-01-04",
+  "models": {
+    "vision": {
+      "framework": "PyTorch Mobile",
+      "architecture": "MobileViT-S",
+      "accuracy": 0.979381443298969,
+      "latency_ms": 142.6685728977636,
+      "size_mb": 11.167242050170898,
+      "file": "mobilevit_s_mobile.pt"
+    },
+    "llm": {
+      "model": "TinyLlama-1.1B-Chat",
+      "quant": "Q5_0",
+      "size_mb": 730.543212890625,
+      "latency_ms": 70288.9798482259,
+      "file": "tinyllama-q5_0.gguf"
+    }
+  },
+  "performance": {
+    "total_latency_s": 70.48134930928548,
+    "meets_2s_target": false
+  },
+  "deployment": {
+    "platform": "Android",
+    "vision_lib": "PyTorch Mobile",
+    "llm_lib": "llama.cpp (JNI)",
+    "offline": true,
+    "min_ram_mb": 512,
+    "total_size_mb": 741.7104549407959
+  },
+  "classes": [
+    "Early",
+    "Healthy",
+    "Late"
+  ]
+}
