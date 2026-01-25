@@ -38,14 +38,14 @@ fun HomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Plagas en Cultivos de Papa",
+                text = "Cropia",
                 style = MaterialTheme.typography.headlineMedium,
                 color = Green800,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Sistema inteligente de detección y manejo",
+                text = "Detección inteligente de plagas en cultivos de papa",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Gray600,
                 textAlign = TextAlign.Center
