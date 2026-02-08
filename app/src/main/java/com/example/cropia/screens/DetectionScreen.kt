@@ -28,10 +28,17 @@ import com.example.cropia.data.DiseaseInfo
 import com.example.cropia.data.DiseaseKnowledgeBase
 import com.example.cropia.ml.PlantDiseaseDetector
 import com.example.cropia.ml.GeminiRecommendationService
+import com.example.cropia.ml.SmolLM2Service
 import com.example.cropia.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+enum class RecommendationMode {
+    TEMPLATE,    // Offline, instant, expert templates
+    SMOLLM2,     // Offline, 15s, on-device AI
+    GEMINI       // Online, fast, cloud AI
+}
 
 @Composable
 fun DetectionScreen(onNavigate: (String) -> Unit) {
@@ -44,7 +51,7 @@ fun DetectionScreen(onNavigate: (String) -> Unit) {
     var diseaseInfo by remember { mutableStateOf<DiseaseInfo?>(null) }
     var showTestImages by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var useAIRecommendations by remember { mutableStateOf(false) }
+    var recommendationMode by remember { mutableStateOf(RecommendationMode.TEMPLATE) }
     var aiRecommendation by remember { mutableStateOf<String?>(null) }
     var isGeneratingAI by remember { mutableStateOf(false) }
     
@@ -52,6 +59,10 @@ fun DetectionScreen(onNavigate: (String) -> Unit) {
         android.util.Log.d("DetectionScreen", "Creating detector...")
         PlantDiseaseDetector(context)
     }
+    
+    // Lazy initialization - only create when needed
+    var smolLM2Service: SmolLM2Service? by remember { mutableStateOf(null) }
+    var smolLM2Error: String? by remember { mutableStateOf(null) }
     
     // TODO: Replace with your actual Gemini API key
     val geminiService = remember { 
@@ -75,16 +86,58 @@ fun DetectionScreen(onNavigate: (String) -> Unit) {
         scope.launch {
             try {
                 isGeneratingAI = true
-                android.widget.Toast.makeText(context, "Generando recomendación con IA...", android.widget.Toast.LENGTH_SHORT).show()
+                val serviceName = when(recommendationMode) {
+                    RecommendationMode.SMOLLM2 -> "SmolLM2"
+                    RecommendationMode.GEMINI -> "Gemini Pro"
+                    else -> "IA"
+                }
+                android.widget.Toast.makeText(
+                    context, 
+                    "Generando con $serviceName...", 
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
                 
-                val recommendation = geminiService.generateRecommendation(result, info)
+                val recommendation = when(recommendationMode) {
+                    RecommendationMode.SMOLLM2 -> {
+                        // Lazy initialization on first use
+                        if (smolLM2Service == null && smolLM2Error == null) {
+                            try {
+                                smolLM2Service = SmolLM2Service(context)
+                            } catch (e: Exception) {
+                                smolLM2Error = "SmolLM2 no disponible en esta plataforma: ${e.message}"
+                                throw Exception(smolLM2Error)
+                            }
+                        }
+                        if (smolLM2Error != null) {
+                            throw Exception(smolLM2Error)
+                        }
+                        smolLM2Service!!.generateRecommendation(result, info)
+                    }
+                    RecommendationMode.GEMINI -> {
+                        geminiService.generateRecommendation(result, info)
+                    }
+                    RecommendationMode.TEMPLATE -> {
+                        // This shouldn't be called for templates
+                        throw Exception("Modo template seleccionado")
+                    }
+                }
+                
                 aiRecommendation = recommendation
                 isGeneratingAI = false
                 
-                android.widget.Toast.makeText(context, "Recomendación IA generada!", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    context, 
+                    "¡Recomendación generada!", 
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             } catch (e: Exception) {
                 isGeneratingAI = false
-                android.widget.Toast.makeText(context, "Error generando IA: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                aiRecommendation = null
+                android.widget.Toast.makeText(
+                    context, 
+                    "Error generando IA: ${e.message}", 
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -115,8 +168,8 @@ fun DetectionScreen(onNavigate: (String) -> Unit) {
                     android.util.Log.d("DetectionScreen", "Result set: ${result.className}")
                     android.widget.Toast.makeText(context, "Análisis completado!", android.widget.Toast.LENGTH_SHORT).show()
                     
-                    // Auto-generate AI recommendation if enabled
-                    if (useAIRecommendations) {
+                    // Auto-generate AI recommendation if not using templates
+                    if (recommendationMode != RecommendationMode.TEMPLATE) {
                         generateAIRecommendation(result, diseaseInfo!!)
                     }
                 } else {
@@ -307,7 +360,7 @@ fun DetectionScreen(onNavigate: (String) -> Unit) {
             }
         }
 
-        // AI Toggle Switch
+        // Recommendation Mode Selector (3 options)
         Spacer(modifier = Modifier.height(16.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -316,39 +369,125 @@ fun DetectionScreen(onNavigate: (String) -> Unit) {
                 containerColor = Green100
             )
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(16.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Recomendaciones con IA",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Gray800
-                    )
-                    Text(
-                        text = "Usa Gemini AI para recomendaciones personalizadas (requiere internet)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Gray600
-                    )
-                }
-                Switch(
-                    checked = useAIRecommendations,
-                    onCheckedChange = { 
-                        useAIRecommendations = it
-                        // If toggling ON and we have results, generate AI recommendation
-                        if (it && detectionResult != null && diseaseInfo != null) {
-                            generateAIRecommendation(detectionResult!!, diseaseInfo!!)
-                        }
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Green600,
-                        checkedTrackColor = Green200
-                    )
+                Text(
+                    text = "Modo de Recomendaciones",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Gray800
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Option 1: Templates
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = recommendationMode == RecommendationMode.TEMPLATE,
+                        onClick = { 
+                            recommendationMode = RecommendationMode.TEMPLATE
+                            aiRecommendation = null
+                        },
+                        colors = RadioButtonDefaults.colors(selectedColor = Green600)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "📋 Templates del CIP",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Gray800
+                        )
+                        Text(
+                            text = "Instantáneo • Offline • Experto",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Gray600
+                        )
+                    }
+                }
+                
+                // Option 2: SmolLM2 (NEW!)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = recommendationMode == RecommendationMode.SMOLLM2,
+                        onClick = { 
+                            recommendationMode = RecommendationMode.SMOLLM2
+                            if (detectionResult != null && diseaseInfo != null) {
+                                generateAIRecommendation(detectionResult!!, diseaseInfo!!)
+                            }
+                        },
+                        colors = RadioButtonDefaults.colors(selectedColor = Green600)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "🤖 SmolLM2 AI",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Gray800
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Green600
+                            ) {
+                                Text(
+                                    text = "BETA",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = SurfaceLight,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Demo • Offline • Basado en SmolLM2",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Gray600
+                        )
+                    }
+                }
+                
+                // Option 3: Gemini
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = recommendationMode == RecommendationMode.GEMINI,
+                        onClick = { 
+                            recommendationMode = RecommendationMode.GEMINI
+                            if (detectionResult != null && diseaseInfo != null) {
+                                generateAIRecommendation(detectionResult!!, diseaseInfo!!)
+                            }
+                        },
+                        colors = RadioButtonDefaults.colors(selectedColor = Green600)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "☁️ Gemini Pro",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Gray800
+                        )
+                        Text(
+                            text = "Rápido • Requiere internet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Gray600
+                        )
+                    }
+                }
             }
         }
 
@@ -391,7 +530,7 @@ fun DetectionScreen(onNavigate: (String) -> Unit) {
                 DetectionResultCard(
                     result = result,
                     info = info,
-                    useAI = useAIRecommendations,
+                    recommendationMode = recommendationMode,
                     aiRecommendation = aiRecommendation,
                     isGeneratingAI = isGeneratingAI,
                     onRegenerateAI = { generateAIRecommendation(result, info) }
@@ -441,7 +580,7 @@ fun DetectionScreen(onNavigate: (String) -> Unit) {
 fun DetectionResultCard(
     result: DetectionResult,
     info: DiseaseInfo,
-    useAI: Boolean,
+    recommendationMode: RecommendationMode,
     aiRecommendation: String?,
     isGeneratingAI: Boolean,
     onRegenerateAI: () -> Unit
@@ -548,107 +687,120 @@ fun DetectionResultCard(
             HorizontalDivider(color = info.severityColor.copy(alpha = 0.3f))
             Spacer(modifier = Modifier.height(16.dp))
             
-            if (useAI) {
-                // AI Generated Recommendations
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Star,
-                        contentDescription = null,
-                        tint = Green600,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Recomendación con IA",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Gray800
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    if (!isGeneratingAI) {
-                        IconButton(onClick = onRegenerateAI) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Regenerar",
-                                tint = Green600
-                            )
+            // Display recommendations based on mode
+            when (recommendationMode) {
+                RecommendationMode.SMOLLM2, RecommendationMode.GEMINI -> {
+                    // AI Generated Recommendations (SmolLM2 or Gemini)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = null,
+                            tint = Green600,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = when(recommendationMode) {
+                                RecommendationMode.SMOLLM2 -> "Recomendación SmolLM2 AI"
+                                RecommendationMode.GEMINI -> "Recomendación Gemini Pro"
+                                else -> "Recomendación con IA"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Gray800
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (!isGeneratingAI) {
+                            IconButton(onClick = onRegenerateAI) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Regenerar",
+                                    tint = Green600
+                                )
+                            }
                         }
                     }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                when {
-                    isGeneratingAI -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = Green600,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    when {
+                        isGeneratingAI -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = Green600,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = when(recommendationMode) {
+                                        RecommendationMode.SMOLLM2 -> "Generando con SmolLM2 (~15s)..."
+                                        RecommendationMode.GEMINI -> "Generando con Gemini Pro..."
+                                        else -> "Generando recomendación..."
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Gray600
+                                )
+                            }
+                        }
+                        aiRecommendation != null -> {
                             Text(
-                                text = "Generando recomendación con IA...",
+                                text = aiRecommendation,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Gray600
+                            )
+                        }
+                        else -> {
+                            Text(
+                                text = "Analice una imagen para ver recomendaciones personalizadas.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Gray600
                             )
                         }
                     }
-                    aiRecommendation != null -> {
-                        Text(
-                            text = aiRecommendation,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Gray600
-                        )
-                    }
-                    else -> {
-                        Text(
-                            text = "Active el modo IA y analice una imagen para ver recomendaciones personalizadas.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Gray600
-                        )
-                    }
-                }
-            } else {
-                // Template Recommendations - Treatment
-                Text(
-                    text = "💊 Tratamiento",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Gray800
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                info.treatment.forEach { item ->
-                    Text(
-                        text = item,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Gray600,
-                        modifier = Modifier.padding(vertical = 2.dp)
-                    )
                 }
                 
-                // Prevention Section
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Text(
-                    text = "🛡️ Prevención",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Gray800
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                info.prevention.forEach { item ->
+                RecommendationMode.TEMPLATE -> {
+                    // Template Recommendations - Treatment
                     Text(
-                        text = item,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Gray600,
-                        modifier = Modifier.padding(vertical = 2.dp)
+                        text = "💊 Tratamiento",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Gray800
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    info.treatment.forEach { item ->
+                        Text(
+                            text = item,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Gray600,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
+                    
+                    // Prevention Section
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text(
+                        text = "🛡️ Prevención",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Gray800
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    info.prevention.forEach { item ->
+                        Text(
+                            text = item,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Gray600,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
                 }
             }
         }

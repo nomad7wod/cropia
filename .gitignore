@@ -18,6 +18,7 @@ local.properties
 *.pt
 *.onnx
 *.tflite
+*.gguf
 
 # APK/AAB files
 *.apk
