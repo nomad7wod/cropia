@@ -223,9 +223,31 @@ The current SmolLM2Service provides **simulated responses** that demonstrate:
 ```
 
 **Knowledge Base:**
-- Tizón Tardío (Late Blight): Critical response protocol
-- Tizón Temprano (Early Blight): Management strategies  
-- Healthy plants: Preventive maintenance
+- Tizón Tardío (Late Blight): Critical response protocol with Metalaxil + Mancozeb treatment
+- Tizón Temprano (Early Blight): Management strategies with Mancozeb/Clorotalonil
+- Healthy plants: Preventive maintenance and monitoring protocols
+
+**Implementation Details:**
+The service uses bilingual disease name matching to support both Spanish and English detection outputs:
+```kotlin
+when {
+    diseaseInfo.name.contains("Tardío", ignoreCase = true) || 
+    diseaseInfo.name.contains("Late Blight", ignoreCase = true) -> [Late Blight recommendations]
+    
+    diseaseInfo.name.contains("Temprano", ignoreCase = true) || 
+    diseaseInfo.name.contains("Early Blight", ignoreCase = true) -> [Early Blight recommendations]
+    
+    else -> [Healthy plant recommendations]
+}
+```
+
+**Testing & Validation:**
+- ✅ Late Blight detection → Generates specific critical treatment protocol (Metalaxil + Mancozeb)
+- ✅ Early Blight detection → Generates moderate severity management plan (Mancozeb/Clorotalonil)
+- ✅ Healthy detection → Generates preventive maintenance recommendations
+- ✅ All 3 modes tested and working correctly on Android emulator API 30
+- ✅ Disease-specific recommendations verified for accuracy
+- ✅ Bilingual name matching resolves detection model output variants
 
 ### 4.3 Code Structure
 
